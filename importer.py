@@ -2,18 +2,22 @@
 """
 StepMania Song Importer
 Converts MP3 files into StepMania song packages with .sm files
+Supports YouTube downloads with metadata preservation
 """
 
 import os
 import sys
 import shutil
 import argparse
+import re
+import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 import librosa
 import numpy as np
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TDRC
+import yt_dlp
 
 
 class StepManiaImporter:
@@ -22,6 +26,79 @@ class StepManiaImporter:
         self.group_name = group_name
         self.difficulty = difficulty
         self.output_dir.mkdir(exist_ok=True)
+        self.temp_dir = Path(tempfile.gettempdir()) / "stepmania_importer"
+        self.temp_dir.mkdir(exist_ok=True)
+
+    def is_youtube_url(self, url: str) -> bool:
+        """Check if string is a YouTube URL"""
+        youtube_regex = (
+            r'(https?://)?(www\.)?'
+            r'(youtube|youtu|youtube-nocookie)\.(com|be)/'
+            r'(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})'
+        )
+        return bool(re.match(youtube_regex, url))
+
+    def download_from_youtube(self, url: str) -> Optional[str]:
+        """Download audio from YouTube and return path to MP3 file with metadata"""
+        print(f"Downloading from YouTube: {url}")
+
+        output_template = str(self.temp_dir / '%(title)s.%(ext)s')
+
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': output_template,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'postprocessor_args': [
+                '-ar', '44100',
+            ],
+            'writethumbnail': True,
+            'embedthumbnail': True,
+            'add_metadata': True,
+            'quiet': False,
+            'no_warnings': False,
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+
+                title = info.get('title', 'Unknown Title')
+                artist = info.get('artist') or info.get('uploader', 'Unknown Artist')
+                album = info.get('album', '')
+                release_year = info.get('release_year') or info.get('upload_date', '')[:4] if info.get('upload_date') else ''
+
+                safe_filename = ydl.prepare_filename(info)
+                mp3_path = Path(safe_filename).with_suffix('.mp3')
+
+                if not mp3_path.exists():
+                    print(f"Error: Downloaded file not found at {mp3_path}")
+                    return None
+
+                audio = MP3(mp3_path)
+                if audio.tags is None:
+                    audio.add_tags()
+
+                audio.tags['TIT2'] = TIT2(encoding=3, text=title)
+                audio.tags['TPE1'] = TPE1(encoding=3, text=artist)
+                if album:
+                    audio.tags['TALB'] = TALB(encoding=3, text=album)
+                if release_year:
+                    audio.tags['TDRC'] = TDRC(encoding=3, text=str(release_year))
+
+                audio.save()
+
+                print(f"  Downloaded: {title}")
+                print(f"  Artist: {artist}")
+
+                return str(mp3_path)
+
+        except Exception as e:
+            print(f"Error downloading from YouTube: {e}")
+            return None
 
     def detect_bpm(self, audio_path: str) -> float:
         """Detect BPM using librosa"""
@@ -175,7 +252,7 @@ class StepManiaImporter:
             name = name.replace(char, '_')
         return name.strip()
 
-    def import_song(self, mp3_path: str) -> bool:
+    def import_song(self, mp3_path: str, cleanup_temp: bool = False) -> bool:
         """Import a single MP3 file into StepMania format"""
         mp3_path = Path(mp3_path)
 
@@ -215,7 +292,22 @@ class StepManiaImporter:
         print(f"  Created: {song_dir}/")
         print(f"  ✓ Imported successfully\n")
 
+        if cleanup_temp and str(mp3_path).startswith(str(self.temp_dir)):
+            try:
+                mp3_path.unlink()
+                print(f"  Cleaned up temporary file")
+            except Exception:
+                pass
+
         return True
+
+    def import_from_youtube(self, url: str) -> bool:
+        """Download from YouTube and import into StepMania format"""
+        mp3_path = self.download_from_youtube(url)
+        if not mp3_path:
+            return False
+
+        return self.import_song(mp3_path, cleanup_temp=True)
 
     def import_directory(self, input_dir: str) -> int:
         """Import all MP3 files from a directory"""
@@ -243,19 +335,21 @@ class StepManiaImporter:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Import MP3 files into StepMania song format",
+        description="Import MP3 files or YouTube videos into StepMania song format",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s song.mp3                    Import a single MP3 file
-  %(prog)s /path/to/music/             Import all MP3s from a directory
-  %(prog)s song.mp3 -o ~/StepMania-5.1/Songs  Specify custom output directory
+  %(prog)s song.mp3                              Import a single MP3 file
+  %(prog)s /path/to/music/                       Import all MP3s from a directory
+  %(prog)s "https://youtube.com/watch?v=..."     Download and import from YouTube
+  %(prog)s song.mp3 -o ~/StepMania-5.1/Songs     Specify custom output directory
+  %(prog)s "https://youtube.com/..." -d Medium   Download with Medium difficulty
         """
     )
 
     parser.add_argument(
         'input',
-        help='MP3 file or directory containing MP3 files'
+        help='MP3 file, directory containing MP3 files, or YouTube URL'
     )
 
     parser.add_argument(
@@ -281,6 +375,12 @@ Examples:
 
     importer = StepManiaImporter(args.output, args.group, args.difficulty)
 
+    if importer.is_youtube_url(args.input):
+        success = importer.import_from_youtube(args.input)
+        if success:
+            print(f"\nOutput directory: {importer.output_dir.absolute()}")
+        sys.exit(0 if success else 1)
+
     input_path = Path(args.input)
 
     if input_path.is_file():
@@ -292,7 +392,7 @@ Examples:
         print(f"Output directory: {importer.output_dir.absolute()}")
         sys.exit(0 if count > 0 else 1)
     else:
-        print(f"Error: {args.input} is not a valid file or directory")
+        print(f"Error: {args.input} is not a valid file, directory, or YouTube URL")
         sys.exit(1)
 
 

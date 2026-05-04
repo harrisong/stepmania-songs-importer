@@ -1,15 +1,16 @@
 # StepMania Songs Importer
 
-A Python tool to convert MP3 files into StepMania song packages with automatically generated `.sm` files.
+A Python tool to convert MP3 files or YouTube videos into StepMania song packages with automatically generated `.sm` files.
 
 ## Features
 
-- Extracts metadata (title, artist) from MP3 ID3 tags or filename
+- **YouTube Download Support**: Download songs directly from YouTube URLs with metadata preservation
+- Extracts metadata (title, artist) from MP3 ID3 tags, YouTube info, or filename
 - Auto-detects BPM using audio analysis
 - Generates valid StepMania `.sm` format files
 - Creates proper directory structure for StepMania
 - Supports single file or batch directory import
-- Includes a basic beginner-level chart pattern
+- Includes five difficulty levels (Beginner to Expert)
 
 ## Installation
 
@@ -18,7 +19,24 @@ A Python tool to convert MP3 files into StepMania song packages with automatical
 pip install -r requirements.txt
 ```
 
+2. Install FFmpeg (required for YouTube downloads):
+```bash
+# Ubuntu/Debian
+sudo apt install ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Windows
+# Download from https://ffmpeg.org/download.html
+```
+
 ## Usage
+
+### Download from YouTube:
+```bash
+python importer.py "https://www.youtube.com/watch?v=VIDEO_ID"
+```
 
 ### Import a single MP3 file:
 ```bash
@@ -38,6 +56,8 @@ python importer.py song.mp3 -o ~/StepMania-5.1/Songs
 ### Specify difficulty level:
 ```bash
 python importer.py song.mp3 -d Medium
+# Or with YouTube:
+python importer.py "https://youtube.com/watch?v=..." -d Hard
 ```
 
 Available difficulty levels: `Beginner`, `Easy`, `Medium`, `Hard`, `Expert`
@@ -61,16 +81,24 @@ Songs/
 
 ## How It Works
 
-1. **Metadata Extraction**: Reads ID3 tags from MP3 files. If tags are missing, attempts to parse artist and title from filename (expects "Artist - Title.mp3" format).
+1. **YouTube Download** (if URL provided):
+   - Downloads audio from YouTube using yt-dlp
+   - Extracts metadata (title, artist, album, year) from YouTube video info
+   - Embeds thumbnail as album art
+   - Converts to MP3 with preserved metadata
 
-2. **BPM Detection**: Uses librosa's beat tracking to automatically detect the song's tempo.
+2. **Metadata Extraction**: 
+   - Reads ID3 tags from MP3 files or YouTube metadata
+   - Falls back to parsing artist and title from filename (expects "Artist - Title.mp3" format)
 
-3. **SM File Generation**: Creates a StepMania `.sm` file with:
+3. **BPM Detection**: Uses librosa's beat tracking to automatically detect the song's tempo.
+
+4. **SM File Generation**: Creates a StepMania `.sm` file with:
    - Song metadata (title, artist, BPM)
-   - A basic beginner-level chart with simple step patterns
+   - Auto-generated chart patterns based on difficulty level
    - Proper timing and offset information
 
-4. **File Organization**: Copies the MP3 and creates the `.sm` file in a properly named directory.
+5. **File Organization**: Copies the MP3 and creates the `.sm` file in a properly named directory.
 
 ## Generated Charts
 
@@ -87,16 +115,19 @@ These are automatically generated patterns. For polished charts, you'll want to 
 ## Requirements
 
 - Python 3.7+
+- FFmpeg (for YouTube downloads)
 - mutagen (MP3 metadata reading)
 - librosa (BPM detection)
 - numpy (audio processing)
+- yt-dlp (YouTube downloading)
 
 ## Notes
 
 - The generated charts are very basic and intended as starting templates
 - BPM detection works best with songs that have consistent tempo
 - You may need to adjust the `#OFFSET` value in the `.sm` file to sync the steps with the music
-- For best results, ensure your MP3 files have proper ID3 tags
+- YouTube downloads automatically preserve metadata (title, artist, album art)
+- For MP3 files, proper ID3 tags will be used if available
 
 ## Next Steps
 
