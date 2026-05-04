@@ -38,8 +38,20 @@ class StepManiaImporter:
         )
         return bool(re.match(youtube_regex, url))
 
+    def check_ffmpeg(self) -> bool:
+        """Check if FFmpeg is installed"""
+        return shutil.which('ffmpeg') is not None and shutil.which('ffprobe') is not None
+
     def download_from_youtube(self, url: str) -> Optional[str]:
         """Download audio from YouTube and return path to MP3 file with metadata"""
+        if not self.check_ffmpeg():
+            print("Error: FFmpeg is not installed or not in PATH")
+            print("\nPlease install FFmpeg:")
+            print("  Ubuntu/Debian/WSL: sudo apt install ffmpeg")
+            print("  macOS: brew install ffmpeg")
+            print("  Windows: Download from https://ffmpeg.org/download.html")
+            return None
+
         print(f"Downloading from YouTube: {url}")
 
         output_template = str(self.temp_dir / '%(title)s.%(ext)s')
@@ -97,7 +109,16 @@ class StepManiaImporter:
                 return str(mp3_path)
 
         except Exception as e:
-            print(f"Error downloading from YouTube: {e}")
+            error_msg = str(e)
+            print(f"Error downloading from YouTube: {error_msg}")
+
+            if 'ffmpeg' in error_msg.lower() or 'ffprobe' in error_msg.lower():
+                print("\nFFmpeg is required for YouTube downloads but was not found.")
+                print("Please install FFmpeg:")
+                print("  Ubuntu/Debian/WSL: sudo apt install ffmpeg")
+                print("  macOS: brew install ffmpeg")
+                print("  Windows: Download from https://ffmpeg.org/download.html")
+
             return None
 
     def detect_bpm(self, audio_path: str) -> float:
